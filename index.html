@@ -4,7 +4,6 @@
 <!-- Spacely — Generatore Analisi di Rendita. File autoconsistente generato da app/build.js. Non modificare a mano: rigenerare con `node app/build.js`. -->
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="robots" content="noindex, nofollow" />
 <title>Spacely — Generatore Analisi di Rendita</title>
 <style>
 /* Spacely — font incorporati (offline). Generato da fetch Google Fonts, licenza OFL. */
@@ -293,12 +292,29 @@
 
   // COMPARABLE — ADR base per zona e fascia posti letto (€/notte) + occupancy media.
   // Fasce posti letto: "b23" = 2-3, "b4" = 4, "b56" = 5-6, "b7" = 7+.
+  // OCCUPANCY DI PROIEZIONE — e' l'assunzione piu' pesante del documento: da qui
+  // escono le notti, quindi i ricavi lordi, quindi il netto del proprietario.
+  //
+  // Regola di taratura: `occ` = mediana osservata sui NOSTRI immobili in quella
+  // zona, meno 3 punti di prudenza. Restiamo sotto il dimostrato, ma smettiamo
+  // di regalarne otto: fino a luglio 2026 assumevamo il 78% in centro mentre i
+  // tre immobili che ci abbiamo facevano l'85,8%.
+  // Zone senza nostri immobili: si eredita l'ancoraggio della zona comparabile
+  // meno altri 2 punti. Dove non c'e' ne' dato ne' comparabile si resta al
+  // valore di mercato, e si dichiara.
+  //
+  //   zona          osservato (mediana)        proiezione
+  //   centro        85,8%  (3 immobili)   →    83%
+  //   crocetta      84,2%  (1 immobile)   →    81%
+  //   semicentro    79,3%  (3 immobili)   →    76%
+  //   sansalvario   nessun immobile       →    79%  (crocetta − 2)
+  //   periferia     nessun immobile       →    65%  (valore di mercato, invariato)
   const ZONES = [
-    { key: "centro",      label: "Centro/Porta Nuova/Quadrilatero",   adr: { b23: 80, b4: 95, b56: 130, b7: 165 }, occ: 0.78 },
-    { key: "sansalvario", label: "San Salvario/Vanchiglia",           adr: { b23: 70, b4: 85, b56: 115, b7: 145 }, occ: 0.74 },
-    { key: "crocetta",    label: "Crocetta/Cit Turin/C.so Vittorio",  adr: { b23: 72, b4: 85, b56: 115, b7: 145 }, occ: 0.74 },
-    { key: "semicentro",  label: "Semicentro (Lingotto/Inalpi/S.Rita)", adr: { b23: 70, b4: 90, b56: 120, b7: 150 }, occ: 0.72 },
-    { key: "periferia",   label: "Periferia servita",                 adr: { b23: 55, b4: 65, b56: 90,  b7: 110 }, occ: 0.65 },
+    { key: "centro",      label: "Centro/Porta Nuova/Quadrilatero",   adr: { b23: 80, b4: 95, b56: 130, b7: 165 }, occ: 0.83, occFonte: "mediana 85,8% su 3 nostri immobili in zona, −3 pt" },
+    { key: "sansalvario", label: "San Salvario/Vanchiglia",           adr: { b23: 70, b4: 85, b56: 115, b7: 145 }, occ: 0.79, occFonte: "zona comparabile (Crocetta), −2 pt: nessun nostro immobile in zona" },
+    { key: "crocetta",    label: "Crocetta/Cit Turin/C.so Vittorio",  adr: { b23: 72, b4: 85, b56: 115, b7: 145 }, occ: 0.81, occFonte: "84,2% del nostro immobile in zona, −3 pt" },
+    { key: "semicentro",  label: "Semicentro (Lingotto/Inalpi/S.Rita)", adr: { b23: 70, b4: 90, b56: 120, b7: 150 }, occ: 0.76, occFonte: "mediana 79,3% su 3 nostri immobili in zona, −3 pt" },
+    { key: "periferia",   label: "Periferia servita",                 adr: { b23: 55, b4: 65, b56: 90,  b7: 110 }, occ: 0.65, occFonte: "valore di mercato: non abbiamo immobili in zona" },
   ];
 
   // CORRETTIVI STATO IMMOBILE — Δ ADR applicato alla tariffa base di zona.
@@ -321,28 +337,106 @@
     { key: "alta",      label: "Alta gamma",  premio: 0.515 },
   ];
 
-  // TRACK RECORD — dati reali gen-lug 2026 (PriceLabs Portfolio Analytics, 02/07/2026).
+  // TRACK RECORD — una riga per immobile. Questa lista e' l'UNICA fonte: gli
+  // aggregati del report (numero immobili, occupancy media, best performer) sono
+  // CALCOLATI da qui, non scritti a mano. Per passare da 7 a 9 immobili si
+  // aggiungono due righe e basta: report e grafici si aggiornano da soli.
+  //
+  // Campi per riga:
+  //   occ            occupancy del periodo (da PriceLabs)
+  //   nottiDisponibili / nottiPrenotate   opzionali. Se ci sono per TUTTI gli
+  //                  immobili in statistica, l'occupancy di portafoglio si calcola
+  //                  ponderata sulle notti — che e' il modo corretto: un immobile
+  //                  attivo tre mesi non deve pesare quanto uno attivo dodici.
+  //   nottiExtra     notti realmente occupate ma non tracciate dal channel
+  //                  (prenotazioni diirette, pagamenti fuori piattaforma, date
+  //                  bloccate a mano). Vanno messe SOLO se documentabili.
+  //   inStatistica   false esclude l'immobile dalla media. Richiede `motivo`,
+  //                  che finisce nella nota del report: un'esclusione non
+  //                  dichiarata e' un numero truccato.
   const PORTFOLIO = [
     { name: "Minimal Suite",  zone: "Centro/Porta Nuova",       occ: 0.8852, adr: 119.84, note: "Best performer" },
     { name: "Modern Suite",   zone: "Semicentro (Inalpi)",      occ: 0.8634, adr: 94.08 },
     { name: "Jungle House",   zone: "Centro/Porta Nuova",       occ: 0.8579, adr: 92.76 },
     { name: "Tiny House",     zone: "Crocetta/C.so Vittorio",   occ: 0.8415, adr: 84.52 },
-    { name: "Cozy Flat",      zone: "Centro/Porta Nuova",       occ: 0.8197, adr: 80.60 },
-    { name: "Balcony View",   zone: "Semicentro (Lingotto)",    occ: 0.7931, adr: 90.75, note: "Attivo da apr 2026" },
+    // Escluso perche' la gestione si sta concludendo: fuori dal portafoglio corrente.
+    { name: "Cozy Flat",      zone: "Centro/Porta Nuova",       occ: 0.8197, adr: 80.60,
+      inStatistica: false, motivo: "non in gestione continuativa" },
+    { name: "Balcony View",   zone: "Semicentro (Lingotto)",    occ: 0.7931, adr: 90.75, attivoDa: "apr 2026",
+      inStatistica: false, motivo: "attivo da aprile 2026, serie storica parziale" },
     { name: "5 Beds",         zone: "Semicentro (Inalpi)",      occ: 0.7162, adr: 117.82 },
   ];
 
-  // Aggregati portfolio (congelati, coerenti col foglio DATI SPACELY).
-  const TRACK_RECORD = {
-    immobili: 7,
-    occupancyMedia: 0.826,        // media reale portfolio
-    bestOccupancy: 0.885,         // Minimal Suite
-    bestAdr: 120,                 // Minimal Suite ~€120
-    marketOccupancyLow: 0.32,     // mercato Torino PriceLabs
-    marketOccupancyHigh: 0.40,
-  };
+  // Immobili in gestione OGGI. Puo' essere maggiore di PORTFOLIO.length quando
+  // ci sono immobili troppo recenti per avere una serie storica: in quel caso il
+  // report dice "N in gestione, media calcolata su M".
+  const IMMOBILI_GESTITI = 9;
 
-  return { ZONES, STATES, FASCIA, PORTFOLIO, TRACK_RECORD };
+  // Come si calcola l'occupancy di portafoglio.
+  //   "ponderata" notti occupate / notti disponibili (corretto, serve il dato notti)
+  //   "media"     media semplice delle percentuali dei singoli immobili
+  //   "mediana"   valore centrale: e' la statistica giusta quando UN immobile
+  //               fuori scala tira giu' la media di tutti gli altri
+  const METODO_OCCUPANCY = "mediana";
+
+  function mediana(valori) {
+    const v = valori.slice().sort((a, b) => a - b);
+    if (!v.length) return 0;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  }
+
+  function occupancyImmobile(a) {
+    if (!a.nottiDisponibili) return a.occ;
+    return (a.nottiPrenotate + (a.nottiExtra || 0)) / a.nottiDisponibili;
+  }
+
+  function aggregaPortfolio(portfolio, metodo, immobiliGestiti) {
+    const inclusi = portfolio.filter((a) => a.inStatistica !== false);
+    const esclusi = portfolio.filter((a) => a.inStatistica === false);
+    if (!inclusi.length) throw new Error("Nessun immobile in statistica: controlla i flag inStatistica.");
+
+    const mancanti = esclusi.filter((a) => !a.motivo).map((a) => a.name);
+    if (mancanti.length) throw new Error("Esclusi senza motivo dichiarato: " + mancanti.join(", "));
+
+    const occs = inclusi.map(occupancyImmobile);
+    const conNotti = inclusi.every((a) => a.nottiDisponibili > 0);
+
+    let occupancyMedia, base;
+    if (metodo === "ponderata" && conNotti) {
+      const disp = inclusi.reduce((t, a) => t + a.nottiDisponibili, 0);
+      const occup = inclusi.reduce((t, a) => t + a.nottiPrenotate + (a.nottiExtra || 0), 0);
+      occupancyMedia = occup / disp;
+      base = "ponderata sulle notti disponibili";
+    } else if (metodo === "mediana") {
+      occupancyMedia = mediana(occs);
+      base = "mediana degli immobili";
+    } else {
+      occupancyMedia = occs.reduce((t, x) => t + x, 0) / occs.length;
+      base = "media degli immobili";
+    }
+
+    const best = inclusi.reduce((m, a) => (occupancyImmobile(a) > occupancyImmobile(m) ? a : m), inclusi[0]);
+
+    return {
+      immobili: immobiliGestiti || portfolio.length,
+      immobiliInStatistica: inclusi.length,
+      occupancyMedia,
+      occupancyMediana: mediana(occs),
+      bestOccupancy: occupancyImmobile(best),
+      bestAdr: Math.round(best.adr),
+      bestNome: best.name,
+      bestZona: best.zone,
+      base,
+      esclusi: esclusi.map((a) => ({ name: a.name, motivo: a.motivo })),
+      marketOccupancyLow: 0.32,   // mercato Torino, PriceLabs
+      marketOccupancyHigh: 0.40,
+    };
+  }
+
+  const TRACK_RECORD = aggregaPortfolio(PORTFOLIO, METODO_OCCUPANCY, IMMOBILI_GESTITI);
+
+  return { ZONES, STATES, FASCIA, PORTFOLIO, TRACK_RECORD, aggregaPortfolio, IMMOBILI_GESTITI };
 });
 
 </script>
@@ -441,10 +535,14 @@
       realistico: adrReal,
       ottimista: adrReal * (1 + p.deltaAdrOttimista),
     };
+    // Occupancy realistica: quella di zona, salvo override manuale (comparable
+    // specifici o storico dell'immobile stesso).
+    const occManuale = input.occManuale && input.occManuale > 0 ? input.occManuale : null;
+    const occReal = occManuale || occBase;
     const occ = {
-      prudente: occBase + p.deltaOccPrudente,
-      realistico: occBase,
-      ottimista: occBase + p.deltaOccOttimista,
+      prudente: occReal + p.deltaOccPrudente,
+      realistico: occReal,
+      ottimista: occReal + p.deltaOccOttimista,
     };
 
     function scenario(key) {
@@ -495,7 +593,7 @@
     return {
       input,
       params: p,
-      derivati: { adrBase, correttivoStato, premioFascia, adrManuale, occBase, zonaLabel: zone.label, statoLabel: state.label, fasciaLabel: fascia.label },
+      derivati: { adrBase, correttivoStato, premioFascia, adrManuale, occBase, occManuale, zonaLabel: zone.label, statoLabel: state.label, fasciaLabel: fascia.label },
       scenari,
       confronto44,
       sfittoMaturato,
@@ -518,6 +616,28 @@
 
   const { HOUSEMARK_PNG } = ASSETS;
   const { ZONES, STATES, FASCIA, PORTFOLIO, TRACK_RECORD } = MARKET;
+
+  // Mese corrente in italiano, es. "Settembre 2026". Resta un campo di testo
+  // modificabile: questo e' solo il valore di partenza, cosi' nessuno spedisce
+  // un'analisi datata due mesi prima perche' si e' dimenticato di cambiarla.
+  const MESI_IT = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+                   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
+  function periodoCorrente(d) {
+    d = d || new Date();
+    return MESI_IT[d.getMonth()] + " " + d.getFullYear();
+  }
+
+  // Frase che dichiara la base di calcolo della media di portafoglio: quanti
+  // immobili ci sono dentro, quanti in gestione, e chi e' escluso e perche'.
+  // Un'esclusione non dichiarata e' un numero truccato; dichiarata e' un criterio.
+  function baseStatistica() {
+    const t = TRACK_RECORD;
+    let txt = "Occupazione " + t.base + " su " + t.immobiliInStatistica +
+              (t.immobiliInStatistica === 1 ? " immobile" : " immobili");
+    if (t.immobili > t.immobiliInStatistica) txt += " su " + t.immobili + " in gestione";
+    txt += ".";
+    return txt;
+  }
   const { computeReport, DEFAULTS } = ENGINE;
   const NAVY = "#363D4E", TEAL = "#27B9BA";
 
@@ -548,10 +668,11 @@
     stato: "design",
     fascia: "media",
     adrManuale: 0,
+    occManuale: 0,
     canoneMensile: 1500,
     mesiSfitto: 5,
     preparataPer: "il proprietario",
-    periodo: "Luglio 2026",
+    periodo: periodoCorrente(),
     specs: "Bilocale signorile 83 mq · 4 posti letto · Ristrutturato, clima a pavimento",
     // parametri avanzati
     aliquotaBreve: DEFAULTS.aliquotaBreve,
@@ -563,6 +684,7 @@
     consumabiliPct: DEFAULTS.consumabiliPct,
     sfitto44Pct: DEFAULTS.sfitto44Pct,
     manutenzione44Pct: DEFAULTS.manutenzione44Pct,
+    immobiliGestiti: MARKET.IMMOBILI_GESTITI,
   };
 
   // ---------- form ----------
@@ -594,9 +716,11 @@
 
       `<details class="adv"><summary>Parametri avanzati</summary>` +
       field("adrManuale", "ADR realistico manuale € / notte (0 = automatico da fascia)", "number") +
+      field("occManuale", "Occupazione realistica manuale (0 = automatica da zona)", "number") +
       `<div class="row2">` + field("aliquotaBreve", "Cedolare breve", "number") + field("aliquota44", "Cedolare 4+4", "number") + `</div>` +
       `<div class="row2">` + field("feeSpacely", "Fee Spacely", "number") + field("ota", "Commissioni OTA", "number") + `</div>` +
       field("utenzeAnnue", "Utenze annue €", "number") +
+      field("immobiliGestiti", "Immobili gestiti (titolo; la media resta sugli immobili con dati)", "number") +
       `<div class="row2">` + field("biancheriaPerNotte", "Biancheria €/notte", "number") + field("consumabiliPct", "Consumabili %", "number") + `</div>` +
       `<div class="row2">` + field("sfitto44Pct", "Sfitto 4+4 %", "number") + field("manutenzione44Pct", "Manut. 4+4 %", "number") + `</div>` +
       `</details>`;
@@ -801,7 +925,9 @@
       ass.push(["ADR risultante (realistico)", eur(s.realistico.adr) + "/notte", adrNote]);
     }
     ass.push(
-      ["Occupazione realistica", pct(s.realistico.occ), "Prudenziale vs " + pctP(TRACK_RECORD.occupancyMedia) + " media reale Spacely"],
+      ["Occupazione realistica", pct(s.realistico.occ), r.derivati.occManuale
+        ? "Impostata sui comparable dell'immobile"
+        : (ZONES.find((z) => z.key === r.input.zona || z.label === r.input.zona) || {}).occFonte || "Comparable di zona"],
       ["Commissioni portali", pct(r.params.ota), "Mix effettivo Airbnb / Booking"],
       ["Fee di gestione Spacely", pct(r.params.feeSpacely) + " dei ricavi lordi", "Tutto incluso: nessun costo di attivazione"]
     );
@@ -810,7 +936,7 @@
       ${rhead(r)}
       <h1 class="title">Come arriviamo a questi numeri</h1>
       <div class="accent-rule"></div>
-      <p class="lead">Nessuna stima ottimistica: ogni numero deriva dai dati reali dei ${TRACK_RECORD.immobili} immobili che gestiamo a Torino (PriceLabs, gen–lug 2026) e dai valori di mercato della zona. Le assunzioni sono dichiarate e verificabili.</p>
+      <p class="lead">Nessuna stima ottimistica: ogni numero deriva dai dati reali del nostro portfolio a Torino (PriceLabs, gen–lug 2026) e dai valori di mercato della zona. Le assunzioni sono dichiarate e verificabili.</p>
 
       <h2 class="sect">Le assunzioni di questa analisi</h2>
       <table class="data">
@@ -824,6 +950,7 @@
         <div>
           <p class="body">Il nostro portfolio viaggia a un'<b>occupazione media dell'${pctP(TRACK_RECORD.occupancyMedia)}</b> contro un mercato torinese al ${pct(TRACK_RECORD.marketOccupancyLow)}–${pct(TRACK_RECORD.marketOccupancyHigh)}. Il risultato viene da pricing dinamico quotidiano, annunci curati professionalmente, risposta agli ospiti in minuti e presenza su più canali.</p>
           <p class="body">Il nostro miglior immobile — un bilocale a Porta Nuova — ha chiuso il semestre all'<b>${pctP(TRACK_RECORD.bestOccupancy)} di occupazione con ${eur(TRACK_RECORD.bestAdr)} di tariffa media</b>.</p>
+          <p class="small">${esc(baseStatistica())} Fonte: PriceLabs Portfolio Analytics.</p>
         </div>
       </div>
 
@@ -852,7 +979,7 @@
       <p class="lead">Spacely è una società di gestione di locazioni brevi con base a Torino. Gestiamo un portfolio di immobili tra centro e semicentro con un modello costruito sui dati: pricing dinamico, reportistica mensile e totale trasparenza sui numeri — la stessa che trova in questo documento.</p>
 
       <div class="kpis" style="margin:14px 0 6px">
-        <div class="kpi accent"><div class="num">${TRACK_RECORD.immobili}</div><div class="lab">Immobili gestiti<br>a Torino</div></div>
+        <div class="kpi accent"><div class="num">${r.input.immobiliGestiti || TRACK_RECORD.immobili}</div><div class="lab">Immobili gestiti<br>a Torino</div></div>
         <div class="kpi"><div class="num">${pctP(TRACK_RECORD.occupancyMedia)}</div><div class="lab">Occupazione media<br>del portfolio</div></div>
         <div class="kpi"><div class="num">${pctP(TRACK_RECORD.bestOccupancy)}</div><div class="lab">Occupazione del<br>best performer</div></div>
         <div class="kpi"><div class="num">${eur(TRACK_RECORD.bestAdr)}</div><div class="lab">ADR del<br>best performer</div></div>

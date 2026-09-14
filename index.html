@@ -497,8 +497,17 @@
     utenzeAnnue: 1800,        // utenze + internet
     assicurazioneAnnua: 0,
     softwareAnnuo: 0,
-    deltaOccPrudente: -0.10,
-    deltaAdrPrudente: -0.10,
+    // SCENARIO PRUDENTE — il taglio si applica a occupancy E tariffa, e i due si
+    // moltiplicano: con -10/-10 i ricavi scendevano del 21% e in centro lo
+    // scenario diceva 73% di occupazione, nove punti sotto il PEGGIO che
+    // abbiamo mai fatto in centro (82%). Non era prudenza, era un'ipotesi che i
+    // nostri dati smentiscono.
+    // La ragione vera di un taglio su un immobile nuovo e' il rodaggio: niente
+    // recensioni, niente storico, primi mesi piu' lenti e prezzo d'ingresso piu'
+    // basso per farsi le prime recensioni. Da qui -6 punti di occupancy e -5%
+    // di tariffa: circa -13% di ricavi, un ribasso vero ma non inventato.
+    deltaOccPrudente: -0.06,
+    deltaAdrPrudente: -0.05,
     deltaOccOttimista: 0.05,
     deltaAdrOttimista: 0.08,
     sfitto44Pct: 0.05,        // sfitto/morosità nel confronto 4+4

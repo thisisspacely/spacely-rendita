@@ -304,13 +304,13 @@
   // valore di mercato, e si dichiara.
   //
   //   zona          osservato (mediana)        proiezione
-  //   centro        85,8%  (3 immobili)   →    83%
+  //   centro        87,2%  (2 immobili)   →    84%   (mediana senza l'immobile in uscita)
   //   crocetta      84,2%  (1 immobile)   →    81%
   //   semicentro    79,3%  (3 immobili)   →    76%
   //   sansalvario   nessun immobile       →    79%  (crocetta − 2)
   //   periferia     nessun immobile       →    65%  (valore di mercato, invariato)
   const ZONES = [
-    { key: "centro",      label: "Centro/Porta Nuova/Quadrilatero",   adr: { b23: 80, b4: 95, b56: 130, b7: 165 }, occ: 0.83, occFonte: "mediana 85,8% su 3 nostri immobili in zona, −3 pt" },
+    { key: "centro",      label: "Centro/Porta Nuova/Quadrilatero",   adr: { b23: 80, b4: 95, b56: 130, b7: 165 }, occ: 0.84, occFonte: "mediana 87,2% sui nostri immobili in zona, −3 pt" },
     { key: "sansalvario", label: "San Salvario/Vanchiglia",           adr: { b23: 70, b4: 85, b56: 115, b7: 145 }, occ: 0.79, occFonte: "zona comparabile (Crocetta), −2 pt: nessun nostro immobile in zona" },
     { key: "crocetta",    label: "Crocetta/Cit Turin/C.so Vittorio",  adr: { b23: 72, b4: 85, b56: 115, b7: 145 }, occ: 0.81, occFonte: "84,2% del nostro immobile in zona, −3 pt" },
     { key: "semicentro",  label: "Semicentro (Lingotto/Inalpi/S.Rita)", adr: { b23: 70, b4: 90, b56: 120, b7: 150 }, occ: 0.76, occFonte: "mediana 79,3% su 3 nostri immobili in zona, −3 pt" },
@@ -508,7 +508,11 @@
     // di tariffa: circa -13% di ricavi, un ribasso vero ma non inventato.
     deltaOccPrudente: -0.06,
     deltaAdrPrudente: -0.05,
-    deltaOccOttimista: 0.05,
+    // Ottimista +4pt e non +5: con il realistico di centro a 84% un +5 portava
+    // lo scenario all'89%, sopra l'88,5% del nostro immobile migliore. Lo
+    // scenario ottimista puo' essere ambizioso, non puo' promettere un
+    // riempimento che non abbiamo mai raggiunto.
+    deltaOccOttimista: 0.04,
     deltaAdrOttimista: 0.08,
     sfitto44Pct: 0.05,        // sfitto/morosità nel confronto 4+4
     manutenzione44Pct: 0.03,  // manutenzione/imprevisti nel confronto 4+4
